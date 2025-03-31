@@ -1,0 +1,7 @@
+spring:
+  application:
+    name: LobbyApi
+  data:
+    mongodb:
+      uri: mongodb+srv://papaletagg67:${DBLOBBYMONGO}@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
+      database: basearsw
