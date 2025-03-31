@@ -17,6 +17,19 @@ public class LobbyController {
     @Autowired
     private LobbyRepository lobbyRepository;
 
+    @PostMapping("/{nombre}/verificar")
+    public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
+        Lobby lobby = lobbyRepository.findByNombre(nombre);
+        if (lobby == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (lobby.getContraseña().equals(lobbyInput.getContraseña())) {
+            return ResponseEntity.ok("Contraseña correcta");
+        } else {
+            return ResponseEntity.status(401).body("Contraseña incorrecta");
+        }
+    }
+
     @GetMapping("/{nombre}/agregarListo")
     public ResponseEntity<Lobby> agregarJugadorListo(@PathVariable String nombre) {
         Lobby lobby = lobbyRepository.findByNombre(nombre);
