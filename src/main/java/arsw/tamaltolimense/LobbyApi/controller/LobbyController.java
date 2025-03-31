@@ -102,6 +102,10 @@ public class LobbyController {
             lobbySinContraseña.setJugadores(lobby.getJugadores());
             lobbySinContraseña.setJugadoresConectados(lobby.getJugadoresConectados());
             lobbySinContraseña.setJugadoresListos(lobby.getJugadoresListos());
+            lobbySinContraseña.setJugadoresConectados(lobby.getJugadoresConectados());
+            lobbySinContraseña.setMaxJugadoresConectados(lobby.getMaxJugadoresConectados());
+            lobbySinContraseña.setNumeroDeRondas(lobby.getNumeroDeRondas());
+            lobbySinContraseña.setModoDeJuego(lobby.getModoDeJuego());
             return lobbySinContraseña;
         }).collect(Collectors.toList());
         return ResponseEntity.ok(lobbiesSinContraseña);
