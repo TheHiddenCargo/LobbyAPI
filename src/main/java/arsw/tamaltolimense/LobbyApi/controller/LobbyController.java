@@ -117,4 +117,18 @@ public class LobbyController {
         lobbyRepository.delete(lobby);
         return ResponseEntity.noContent().build();
     }
+
+    @PutMapping("/{nombre}/restarRonda")
+    public ResponseEntity<Lobby> restarRonda(@PathVariable String nombre) {
+        Lobby lobby = lobbyRepository.findByNombre(nombre);
+        if (lobby == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (lobby.getNumeroDeRondas() > 0) {
+            lobby.setNumeroDeRondas(lobby.getNumeroDeRondas() - 1);
+            lobbyRepository.save(lobby);
+        }
+        return ResponseEntity.ok(lobby);
+    }
+
 }
