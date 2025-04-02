@@ -2,6 +2,7 @@ package arsw.tamaltolimense.LobbyApi.controller;
 
 import arsw.tamaltolimense.LobbyApi.model.Lobby;
 import arsw.tamaltolimense.LobbyApi.repository.LobbyRepository;
+import arsw.tamaltolimense.LobbyApi.socket.LobbySocketService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +17,9 @@ public class LobbyController {
 
     @Autowired
     private LobbyRepository lobbyRepository;
+
+    @Autowired
+    private LobbySocketService socketService;
 
     @PostMapping("/{nombre}/verificar")
     public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
@@ -38,6 +42,15 @@ public class LobbyController {
         }
         lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
         lobbyRepository.save(lobby);
+
+        // Notificar a través de Socket.IO
+        socketService.notifyLobbyUpdated(nombre, lobby);
+
+        // Verificar si todos están listos para iniciar
+        if (lobby.getJugadoresListos() == lobby.getJugadoresConectados()) {
+            socketService.notifyGameStarted(nombre);
+        }
+
         return ResponseEntity.ok(lobby);
     }
 
@@ -49,6 +62,10 @@ public class LobbyController {
         }
         lobby.setJugadoresConectados(lobby.getJugadoresConectados() + 1);
         lobbyRepository.save(lobby);
+
+        // Notificar a través de Socket.IO
+        socketService.notifyLobbyUpdated(nombre, lobby);
+
         return ResponseEntity.ok(lobby);
     }
 
@@ -77,6 +94,9 @@ public class LobbyController {
             lobby.getJugadores().add(nickname);
             lobby.setJugadoresConectados(lobby.getJugadoresConectados() + 1);
             lobbyRepository.save(lobby);
+
+            // Notificar a través de Socket.IO
+            socketService.notifyLobbyUpdated(nombre, lobby);
         }
         return ResponseEntity.ok(lobby);
     }
@@ -91,6 +111,9 @@ public class LobbyController {
         if (lobby.getJugadoresListos() > 0) {
             lobby.setJugadoresListos(lobby.getJugadoresListos() - 1);
             lobbyRepository.save(lobby);
+
+            // Notificar a través de Socket.IO
+            socketService.notifyLobbyUpdated(nombre, lobby);
         }
         return ResponseEntity.ok(lobby);
     }
@@ -144,8 +167,10 @@ public class LobbyController {
         if (lobby.getNumeroDeRondas() > 0) {
             lobby.setNumeroDeRondas(lobby.getNumeroDeRondas() - 1);
             lobbyRepository.save(lobby);
+
+            // Notificar a través de Socket.IO
+            socketService.notifyRoundEnded(nombre, lobby.getNumeroDeRondas());
         }
         return ResponseEntity.ok(lobby);
     }
-
 }
