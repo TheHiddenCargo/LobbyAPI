@@ -38,22 +38,17 @@ public class LobbySocketService {
 
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
-        config.setPort(socketIOPort);
+        config.setPort(80); // Puerto principal en Azure
 
-        // Configurar para permitir conexiones cruzadas
+        // IMPORTANTE: Configurar el path correcto
+        config.setContext("/socket.io");
+
+        // Configuraciones básicas
         config.setOrigin("*");
-
-        // Importante: Siempre autorizar todas las conexiones durante desarrollo
         config.setAuthorizationListener(data -> true);
 
-        // Configuración adicional para mejorar la estabilidad
-        config.setPingTimeout(25000);
-        config.setPingInterval(25000);
-        config.setAllowCustomRequests(true);
-        config.setRandomSession(false);
-
-        // Configuración específica para Azure App Service
-        config.setContext("/socket.io");  // Establece el contexto de Socket.IO
+        // Iniciar servidor
+        server = new SocketIOServer(config); // Establece el contexto de Socket.IO
 
 
         try {
@@ -72,7 +67,7 @@ public class LobbySocketService {
 
             // Iniciar el servidor Socket.IO
             server.start();
-            logger.info("SocketIO Server iniciado exitosamente");
+            logger.info("SocketIO Server iniciado en puerto 80 con path /socket.ioe");
         } catch (Exception e) {
             logger.error("Error al iniciar SocketIO Server", e);
         }
