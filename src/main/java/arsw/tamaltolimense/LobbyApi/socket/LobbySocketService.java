@@ -28,39 +28,34 @@ public class LobbySocketService {
     @Autowired
     private LobbyRepository lobbyRepository;
 
-    // Puerto para Socket.IO, por defecto usa 80 (el puerto principal en Azure)
-    @Value("${socketio.port:80}")
-    private int socketIOPort;
 
     @PostConstruct
     public void init() {
         try {
-            logger.info("Iniciando configuración del servidor Socket.IO");
+            // Obtener el puerto de Spring Boot (importante en Azure)
+            String webPort = System.getenv("SERVER_PORT");
+            if (webPort == null) {
+                webPort = System.getenv("PORT");
+            }
+            int port = webPort != null ? Integer.parseInt(webPort) : 8080;
+
+            logger.info("Iniciando configuración del servidor Socket.IO en puerto {}", port);
 
             Configuration config = new Configuration();
             config.setHostname("0.0.0.0");
-            config.setPort(80);  // Puerto principal en Azure
+            config.setPort(port);  // Usar el mismo puerto que Spring Boot
 
-            // Configuración obligatoria para Azure
+            // Configuración correcta para Socket.IO
             config.setContext("/socket.io");
             config.setOrigin("*");
             config.setAllowCustomRequests(true);
+            config.setAuthorizationListener(data -> true);
 
-            // Siempre permitir todas las conexiones para pruebas
-            config.setAuthorizationListener(data -> {
-                logger.info("Autorización de conexión: {}", data.getHttpHeaders());
-                return true;
-            });
-
-            // Configuraciones de rendimiento
+            // Configuraciones adicionales
             config.setPingTimeout(60000);
             config.setPingInterval(25000);
 
-            // Habilitar depuración
-            config.setRandomSession(false);
-
-
-            logger.info("Creando instancia de SocketIOServer");// Establece el contexto de Socket.IO
+            logger.info("Creando instancia de SocketIOServer");
             server = new SocketIOServer(config);
 
             // Configurar listeners para eventos de conexión y desconexión
