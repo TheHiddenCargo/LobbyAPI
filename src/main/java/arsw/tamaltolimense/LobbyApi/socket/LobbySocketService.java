@@ -42,6 +42,7 @@ public class LobbySocketService {
             config.setOrigin("*");
             config.setAllowCustomRequests(true);
             config.setAuthorizationListener(data -> true);
+            config.setTransports(new Transport[]{Transport.WEBSOCKET, Transport.POLLING});
 
             // Configuraciones adicionales
             config.setPingTimeout(60000);
