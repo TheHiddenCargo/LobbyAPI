@@ -30,7 +30,8 @@ public class LobbySocketService {
         int port = webPort != null ? Integer.parseInt(webPort) : 8080;
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
-        config.setPort(9092);
+        config.setPort(80);
+        config.setContext("/socket.io");
 
         // Mejor configuración de CORS
         config.setOrigin("*");
