@@ -37,7 +37,7 @@ public class LobbySocketService {
             if (webPort == null) {
                 webPort = System.getenv("PORT");
             }
-            int port = webPort != null ? Integer.parseInt(webPort) : 8080;
+            int port = webPort != null ? Integer.parseInt(webPort) : 9090;
 
             logger.info("Iniciando configuración del servidor Socket.IO en puerto {}", port);
 

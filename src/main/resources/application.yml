@@ -7,10 +7,10 @@ spring:
       database: basearsw
 
   server:
-    port: ${PORT:8080}
+    port: ${PORT:0}
 
   socketio:
-    port: ${PORT:80}
+    port: ${PORT:0}
     hostname: 0.0.0.0
     origin: "*"
     context: /socket.io
