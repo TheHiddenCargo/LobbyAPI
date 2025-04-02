@@ -1,6 +1,8 @@
 spring:
   application:
     name: LobbyApi
+  server:
+    port: ${PORT:8080}
   data:
     mongodb:
       uri: mongodb+srv://papaletagg67:${DBLOBBYMONGO}@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
