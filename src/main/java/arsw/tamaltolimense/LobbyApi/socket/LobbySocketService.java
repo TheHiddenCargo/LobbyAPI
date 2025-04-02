@@ -26,13 +26,25 @@ public class LobbySocketService {
 
     @PostConstruct
     public void init() {
+        String webPort = System.getenv("PORT");
+        int port = webPort != null ? Integer.parseInt(webPort) : 8080;
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
+        config.setPort(9092);
 
-        // Usar el puerto proporcionado por Azure o usar 9092 por defecto
-        String port = System.getenv("PORT");
-        int socketPort = (port == null) ? 9092 : Integer.parseInt(port);
-        config.setPort(socketPort);
+        // Mejor configuración de CORS
+        config.setOrigin("*");
+
+        // Configuración para depuración
+        config.setRandomSession(false);
+
+
+        // Solo una vez
+        config.setAuthorizationListener(data -> true);
+        config.setAllowCustomRequests(true);
+        config.setPingTimeout(60000);
+        config.setPingInterval(25000);
+
 
         server = new SocketIOServer(config);
 
