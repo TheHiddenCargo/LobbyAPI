@@ -34,24 +34,33 @@ public class LobbySocketService {
 
     @PostConstruct
     public void init() {
-        logger.info("Inicializando SocketIO Server en puerto {}", socketIOPort);
-
-        Configuration config = new Configuration();
-        config.setHostname("0.0.0.0");
-        config.setPort(80); // Puerto principal en Azure
-
-        // IMPORTANTE: Configurar el path correcto
-        config.setContext("/socket.io");
-
-        // Configuraciones básicas
-        config.setOrigin("*");
-        config.setAuthorizationListener(data -> true);
-
-        // Iniciar servidor
-        server = new SocketIOServer(config); // Establece el contexto de Socket.IO
-
-
         try {
+            logger.info("Iniciando configuración del servidor Socket.IO");
+
+            Configuration config = new Configuration();
+            config.setHostname("0.0.0.0");
+            config.setPort(80);  // Puerto principal en Azure
+
+            // Configuración obligatoria para Azure
+            config.setContext("/socket.io");
+            config.setOrigin("*");
+            config.setAllowCustomRequests(true);
+
+            // Siempre permitir todas las conexiones para pruebas
+            config.setAuthorizationListener(data -> {
+                logger.info("Autorización de conexión: {}", data.getHttpHeaders());
+                return true;
+            });
+
+            // Configuraciones de rendimiento
+            config.setPingTimeout(60000);
+            config.setPingInterval(25000);
+
+            // Habilitar depuración
+            config.setRandomSession(false);
+
+
+            logger.info("Creando instancia de SocketIOServer");// Establece el contexto de Socket.IO
             server = new SocketIOServer(config);
 
             // Configurar listeners para eventos de conexión y desconexión
@@ -65,7 +74,7 @@ public class LobbySocketService {
             server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
             server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
 
-            // Iniciar el servidor Socket.IO
+            logger.info("Iniciando servidor Socket.IO en puerto 80 con path /socket.io");
             server.start();
             logger.info("SocketIO Server iniciado en puerto 80 con path /socket.ioe");
         } catch (Exception e) {
