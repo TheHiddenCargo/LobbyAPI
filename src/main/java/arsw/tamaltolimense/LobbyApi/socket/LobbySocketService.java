@@ -26,15 +26,18 @@ public class LobbySocketService {
 
     @PostConstruct
     public void init() {
-
+        String port = System.getenv("WEBSITES_PORT");
+        if (port == null) {
+            port = System.getenv("PORT");
+            if (port == null) {
+                port = "8080";
+            }
+        }
+        int serverPort = Integer.parseInt(port);
 
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
-
-
-        // Configuración para Socket.IO
-        config.setContext("/socket.io");
-        config.setOrigin("*");
+        config.setPort(serverPort);
 
         // Configuración para depuración
         config.setRandomSession(false);
