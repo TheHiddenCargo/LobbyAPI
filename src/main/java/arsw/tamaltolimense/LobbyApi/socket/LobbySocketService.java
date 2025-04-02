@@ -35,9 +35,7 @@ public class LobbySocketService {
 
             Configuration config = new Configuration();
             config.setHostname("0.0.0.0");
-            String portEnv = System.getenv("PORT");
-            int port = (portEnv != null) ? Integer.parseInt(portEnv) : 80;
-            config.setPort(port);
+            config.setPort(443);
 
             // Configuración correcta para Socket.IO
             config.setContext("/socket.io");
