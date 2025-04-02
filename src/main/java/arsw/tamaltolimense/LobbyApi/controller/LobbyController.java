@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/lobbies")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "*") // Para desarrollo
 public class LobbyController {
     private static final Logger logger = LoggerFactory.getLogger(LobbyController.class);
 
@@ -23,7 +23,7 @@ public class LobbyController {
     private LobbyRepository lobbyRepository;
 
     @Autowired
-    private LobbySocketService socketService;
+    private LobbySocketService socketHandler;
 
     @PostMapping("/{nombre}/verificar")
     public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
@@ -54,12 +54,12 @@ public class LobbyController {
         lobbyRepository.save(lobby);
 
         // Notificar a través de Socket.IO
-        socketService.notifyLobbyUpdated(nombre, lobby);
+        socketHandler.notifyLobbyUpdated(nombre, lobby);
 
         // Verificar si todos están listos para iniciar
         if (lobby.getJugadoresListos() == lobby.getJugadoresConectados()) {
             logger.info("Todos los jugadores listos en lobby: {}. Iniciando juego.", nombre);
-            socketService.notifyGameStarted(nombre);
+            socketHandler.notifyGameStarted(nombre);
         }
 
         return ResponseEntity.ok(lobby);
@@ -77,7 +77,7 @@ public class LobbyController {
         lobbyRepository.save(lobby);
 
         // Notificar a través de Socket.IO
-        socketService.notifyLobbyUpdated(nombre, lobby);
+        socketHandler.notifyLobbyUpdated(nombre, lobby);
 
         return ResponseEntity.ok(lobby);
     }
@@ -113,7 +113,7 @@ public class LobbyController {
             lobbyRepository.save(lobby);
 
             // Notificar a través de Socket.IO
-            socketService.notifyLobbyUpdated(nombre, lobby);
+            socketHandler.notifyLobbyUpdated(nombre, lobby);
             logger.info("Jugador {} agregado al lobby {}", nickname, nombre);
         } else {
             logger.info("Jugador {} ya existe en el lobby {}", nickname, nombre);
@@ -134,7 +134,7 @@ public class LobbyController {
             lobbyRepository.save(lobby);
 
             // Notificar a través de Socket.IO
-            socketService.notifyLobbyUpdated(nombre, lobby);
+            socketHandler.notifyLobbyUpdated(nombre, lobby);
             logger.info("Jugador listo removido del lobby {}", nombre);
         }
         return ResponseEntity.ok(lobby);
@@ -154,20 +154,24 @@ public class LobbyController {
     @GetMapping("/listar")
     public ResponseEntity<List<Lobby>> listarLobbies() {
         logger.info("Listando todos los lobbies disponibles");
-        List<Lobby> lobbies = lobbyRepository.findAll();
-        List<Lobby> lobbiesSinContraseña = lobbies.stream().map(lobby -> {
-            Lobby lobbySinContraseña = new Lobby();
-            lobbySinContraseña.setNombre(lobby.getNombre());
-            lobbySinContraseña.setJugadores(lobby.getJugadores());
-            lobbySinContraseña.setJugadoresConectados(lobby.getJugadoresConectados());
-            lobbySinContraseña.setJugadoresListos(lobby.getJugadoresListos());
-            lobbySinContraseña.setJugadoresConectados(lobby.getJugadoresConectados());
-            lobbySinContraseña.setMaxJugadoresConectados(lobby.getMaxJugadoresConectados());
-            lobbySinContraseña.setNumeroDeRondas(lobby.getNumeroDeRondas());
-            lobbySinContraseña.setModoDeJuego(lobby.getModoDeJuego());
-            return lobbySinContraseña;
-        }).collect(Collectors.toList());
-        return ResponseEntity.ok(lobbiesSinContraseña);
+        try {
+            List<Lobby> lobbies = lobbyRepository.findAll();
+            List<Lobby> lobbiesSinContraseña = lobbies.stream().map(lobby -> {
+                Lobby lobbySinContraseña = new Lobby();
+                lobbySinContraseña.setNombre(lobby.getNombre());
+                lobbySinContraseña.setJugadores(lobby.getJugadores());
+                lobbySinContraseña.setJugadoresConectados(lobby.getJugadoresConectados());
+                lobbySinContraseña.setJugadoresListos(lobby.getJugadoresListos());
+                lobbySinContraseña.setMaxJugadoresConectados(lobby.getMaxJugadoresConectados());
+                lobbySinContraseña.setNumeroDeRondas(lobby.getNumeroDeRondas());
+                lobbySinContraseña.setModoDeJuego(lobby.getModoDeJuego());
+                return lobbySinContraseña;
+            }).collect(Collectors.toList());
+            return ResponseEntity.ok(lobbiesSinContraseña);
+        } catch (Exception e) {
+            logger.error("Error al listar lobbies: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     @DeleteMapping("/{nombre}")
@@ -196,7 +200,7 @@ public class LobbyController {
             lobbyRepository.save(lobby);
 
             // Notificar a través de Socket.IO
-            socketService.notifyRoundEnded(nombre, lobby.getNumeroDeRondas());
+            socketHandler.notifyRoundEnded(nombre, lobby.getNumeroDeRondas());
             logger.info("Ronda restada en lobby {}. Rondas restantes: {}",
                     nombre, lobby.getNumeroDeRondas());
         }

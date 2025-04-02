@@ -32,18 +32,10 @@ public class LobbySocketService {
     @PostConstruct
     public void init() {
         try {
-            // Obtener el puerto de Spring Boot (importante en Azure)
-            String webPort = System.getenv("SERVER_PORT");
-            if (webPort == null) {
-                webPort = System.getenv("PORT");
-            }
-            int port = webPort != null ? Integer.parseInt(webPort) : 9090;
-
-            logger.info("Iniciando configuración del servidor Socket.IO en puerto {}", port);
 
             Configuration config = new Configuration();
             config.setHostname("0.0.0.0");
-            config.setPort(port);  // Usar el mismo puerto que Spring Boot
+            config.setPort(81);
 
             // Configuración correcta para Socket.IO
             config.setContext("/socket.io");
