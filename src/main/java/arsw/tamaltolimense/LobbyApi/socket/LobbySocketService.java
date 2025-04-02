@@ -27,13 +27,10 @@ public class LobbySocketService {
     @PostConstruct
     public void init() {
 
-        String webPort = System.getenv("PORT");
-        int port = webPort != null ? Integer.parseInt(webPort) : 8080;
 
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
 
-        config.setPort(port);
 
         // Configuración para Socket.IO
         config.setContext("/socket.io");
