@@ -10,10 +10,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/lobbies")
+@CrossOrigin(origins = "*")
 public class LobbyController {
+    private static final Logger logger = LoggerFactory.getLogger(LobbyController.class);
 
     @Autowired
     private LobbyRepository lobbyRepository;
@@ -23,21 +27,27 @@ public class LobbyController {
 
     @PostMapping("/{nombre}/verificar")
     public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
+        logger.info("Verificando contraseña para lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         if (lobby.getContraseña().equals(lobbyInput.getContraseña())) {
+            logger.info("Contraseña correcta para lobby: {}", nombre);
             return ResponseEntity.ok("Contraseña correcta");
         } else {
+            logger.warn("Contraseña incorrecta para lobby: {}", nombre);
             return ResponseEntity.status(401).body("Contraseña incorrecta");
         }
     }
 
     @GetMapping("/{nombre}/agregarListo")
     public ResponseEntity<Lobby> agregarJugadorListo(@PathVariable String nombre) {
+        logger.info("Agregando jugador listo en lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
@@ -48,6 +58,7 @@ public class LobbyController {
 
         // Verificar si todos están listos para iniciar
         if (lobby.getJugadoresListos() == lobby.getJugadoresConectados()) {
+            logger.info("Todos los jugadores listos en lobby: {}. Iniciando juego.", nombre);
             socketService.notifyGameStarted(nombre);
         }
 
@@ -56,8 +67,10 @@ public class LobbyController {
 
     @GetMapping("/{nombre}/agregarConectado")
     public ResponseEntity<Lobby> agregarJugadorConectado(@PathVariable String nombre) {
+        logger.info("Agregando jugador conectado en lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         lobby.setJugadoresConectados(lobby.getJugadoresConectados() + 1);
@@ -71,7 +84,9 @@ public class LobbyController {
 
     @PostMapping
     public ResponseEntity<Lobby> crearLobby(@RequestBody Lobby nuevaLobby) {
+        logger.info("Creando nuevo lobby: {}", nuevaLobby.getNombre());
         if (lobbyRepository.findByNombre(nuevaLobby.getNombre()) != null) {
+            logger.warn("El lobby {} ya existe", nuevaLobby.getNombre());
             return ResponseEntity.badRequest().body(null);
         }
         if (nuevaLobby.getJugadores() == null) {
@@ -80,14 +95,16 @@ public class LobbyController {
         nuevaLobby.setJugadoresConectados(1);
         nuevaLobby.setJugadoresListos(0);
         Lobby lobbyGuardada = lobbyRepository.save(nuevaLobby);
+        logger.info("Lobby creado exitosamente: {}", nuevaLobby.getNombre());
         return ResponseEntity.ok(lobbyGuardada);
     }
 
-    // Endpoint para agregar un jugador a la lobby
     @PutMapping("/{nombre}/agregarJugador")
     public ResponseEntity<Lobby> agregarJugador(@PathVariable String nombre, @RequestParam String nickname) {
+        logger.info("Agregando jugador {} al lobby {}", nickname, nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         if (!lobby.getJugadores().contains(nickname)) {
@@ -97,15 +114,19 @@ public class LobbyController {
 
             // Notificar a través de Socket.IO
             socketService.notifyLobbyUpdated(nombre, lobby);
+            logger.info("Jugador {} agregado al lobby {}", nickname, nombre);
+        } else {
+            logger.info("Jugador {} ya existe en el lobby {}", nickname, nombre);
         }
         return ResponseEntity.ok(lobby);
     }
 
-    // Endpoint para restar un jugador de los listos
     @GetMapping("/{nombre}/quitarListo")
     public ResponseEntity<Lobby> quitarJugadorListo(@PathVariable String nombre) {
+        logger.info("Quitando jugador listo en lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         if (lobby.getJugadoresListos() > 0) {
@@ -114,23 +135,25 @@ public class LobbyController {
 
             // Notificar a través de Socket.IO
             socketService.notifyLobbyUpdated(nombre, lobby);
+            logger.info("Jugador listo removido del lobby {}", nombre);
         }
         return ResponseEntity.ok(lobby);
     }
 
-    // Endpoint para obtener toda la información de una lobby
     @GetMapping("/{nombre}")
     public ResponseEntity<Lobby> obtenerLobby(@PathVariable String nombre) {
+        logger.info("Obteniendo información de lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(lobby);
     }
 
-    // Endpoint para obtener todas las lobbies sin la contraseña
     @GetMapping("/listar")
     public ResponseEntity<List<Lobby>> listarLobbies() {
+        logger.info("Listando todos los lobbies disponibles");
         List<Lobby> lobbies = lobbyRepository.findAll();
         List<Lobby> lobbiesSinContraseña = lobbies.stream().map(lobby -> {
             Lobby lobbySinContraseña = new Lobby();
@@ -147,21 +170,25 @@ public class LobbyController {
         return ResponseEntity.ok(lobbiesSinContraseña);
     }
 
-    // Endpoint para borrar una lobby por su nombre
     @DeleteMapping("/{nombre}")
     public ResponseEntity<Void> borrarLobby(@PathVariable String nombre) {
+        logger.info("Borrando lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         lobbyRepository.delete(lobby);
+        logger.info("Lobby borrado exitosamente: {}", nombre);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{nombre}/restarRonda")
     public ResponseEntity<Lobby> restarRonda(@PathVariable String nombre) {
+        logger.info("Restando ronda en lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
             return ResponseEntity.notFound().build();
         }
         if (lobby.getNumeroDeRondas() > 0) {
@@ -170,6 +197,8 @@ public class LobbyController {
 
             // Notificar a través de Socket.IO
             socketService.notifyRoundEnded(nombre, lobby.getNumeroDeRondas());
+            logger.info("Ronda restada en lobby {}. Rondas restantes: {}",
+                    nombre, lobby.getNumeroDeRondas());
         }
         return ResponseEntity.ok(lobby);
     }

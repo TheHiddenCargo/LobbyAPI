@@ -13,9 +13,13 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 
 @Component
 public class LobbySocketService {
+    private static final Logger logger = LoggerFactory.getLogger(LobbySocketService.class);
 
     private SocketIOServer server;
     private final Map<String, String> sessionToNickname = new HashMap<>();
@@ -24,62 +28,67 @@ public class LobbySocketService {
     @Autowired
     private LobbyRepository lobbyRepository;
 
+    // Puerto para Socket.IO, por defecto usa 80 (el puerto principal en Azure)
+    @Value("${socketio.port:80}")
+    private int socketIOPort;
+
     @PostConstruct
     public void init() {
-
-        String port = System.getenv("WEBSITES_PORT");
-        if (port == null) {
-            port = System.getenv("PORT");
-            if (port == null) {
-                port = "9092";
-            }
-        }
-        int serverPort = Integer.parseInt(port);
+        logger.info("Inicializando SocketIO Server en puerto {}", socketIOPort);
 
         Configuration config = new Configuration();
         config.setHostname("0.0.0.0");
+        config.setPort(socketIOPort);
 
-
-        // Configuración para Socket.IO
-        config.setContext("/socket.io");
+        // Configurar para permitir conexiones cruzadas
         config.setOrigin("*");
-        config.setPort(serverPort);
 
-        // Configuración para depuración
-        config.setRandomSession(false);
-        // Solo una vez
+        // Importante: Siempre autorizar todas las conexiones durante desarrollo
         config.setAuthorizationListener(data -> true);
-        config.setAllowCustomRequests(true);
-        config.setPingTimeout(60000);
+
+        // Configuración adicional para mejorar la estabilidad
+        config.setPingTimeout(25000);
         config.setPingInterval(25000);
+        config.setAllowCustomRequests(true);
+        config.setRandomSession(false);
+
+        // Configuración específica para Azure App Service
+        config.setContext("/socket.io");  // Establece el contexto de Socket.IO
 
 
-        server = new SocketIOServer(config);
+        try {
+            server = new SocketIOServer(config);
 
-        // Configurar eventos de conexión y desconexión
-        server.addConnectListener(onConnected());
-        server.addDisconnectListener(onDisconnected());
+            // Configurar listeners para eventos de conexión y desconexión
+            server.addConnectListener(onConnected());
+            server.addDisconnectListener(onDisconnected());
 
-        // Configurar eventos específicos del lobby
-        server.addEventListener("joinLobby", JoinLobbyData.class, onJoinLobby());
-        server.addEventListener("leaveLobby", LeaveLobbyData.class, onLeaveLobby());
-        server.addEventListener("playerReady", PlayerReadyData.class, onPlayerReady());
-        server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
-        server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
+            // Configurar listeners para eventos específicos del lobby
+            server.addEventListener("joinLobby", JoinLobbyData.class, onJoinLobby());
+            server.addEventListener("leaveLobby", LeaveLobbyData.class, onLeaveLobby());
+            server.addEventListener("playerReady", PlayerReadyData.class, onPlayerReady());
+            server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
+            server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
 
-        server.start();
+            // Iniciar el servidor Socket.IO
+            server.start();
+            logger.info("SocketIO Server iniciado exitosamente");
+        } catch (Exception e) {
+            logger.error("Error al iniciar SocketIO Server", e);
+        }
     }
 
     @PreDestroy
     public void destroy() {
         if (server != null) {
+            logger.info("Deteniendo SocketIO Server");
             server.stop();
         }
     }
 
     private ConnectListener onConnected() {
         return client -> {
-            System.out.println("Cliente conectado: " + client.getSessionId());
+            logger.info("Cliente conectado: {}", client.getSessionId());
         };
     }
 
@@ -89,30 +98,36 @@ public class LobbySocketService {
             String nickname = sessionToNickname.get(sessionId);
             String lobbyName = sessionToLobby.get(sessionId);
 
+            logger.info("Cliente desconectado: {}. Nickname: {}, Lobby: {}",
+                    sessionId, nickname, lobbyName);
+
             if (nickname != null && lobbyName != null) {
                 // Manejar la desconexión del jugador
                 Lobby lobby = lobbyRepository.findByNombre(lobbyName);
                 if (lobby != null) {
                     lobby.setJugadoresConectados(lobby.getJugadoresConectados() - 1);
-                    // Si el jugador estaba listo, hay que restar también
+
+                    // Si el jugador estaba listo, hay que verificar si debe restarse
+                    // Esto dependería de tu lógica de negocio
+
                     lobbyRepository.save(lobby);
 
                     // Notificar a todos en la sala que el jugador se desconectó
                     server.getRoomOperations(lobbyName).sendEvent("playerLeft", new PlayerLeftData(nickname));
+
+                    logger.info("Jugador {} removido del lobby {} por desconexión", nickname, lobbyName);
                 }
             }
 
             // Limpiar los mapas
             sessionToNickname.remove(sessionId);
             sessionToLobby.remove(sessionId);
-
-            System.out.println("Cliente desconectado: " + sessionId);
         };
     }
 
     private DataListener<JoinLobbyData> onJoinLobby() {
         return (client, data, ackRequest) -> {
-            System.out.println("Jugador " + data.getNickname() + " intenta unirse al lobby: " + data.getLobbyName());
+            logger.info("Jugador {} intenta unirse al lobby: {}", data.getNickname(), data.getLobbyName());
 
             // Guardar la información de sesión
             String sessionId = client.getSessionId().toString();
@@ -129,6 +144,8 @@ public class LobbySocketService {
             if (ackRequest.isAckRequested()) {
                 ackRequest.sendAckData("Te has unido al lobby: " + data.getLobbyName());
             }
+
+            logger.info("Jugador {} unido exitosamente al lobby {}", data.getNickname(), data.getLobbyName());
         };
     }
 
@@ -137,6 +154,8 @@ public class LobbySocketService {
             String sessionId = client.getSessionId().toString();
             String nickname = sessionToNickname.get(sessionId);
             String lobbyName = data.getLobbyName();
+
+            logger.info("Jugador {} intentando salir del lobby {}", nickname, lobbyName);
 
             if (nickname != null && lobbyName != null) {
                 // Quitar al jugador de la sala
@@ -151,6 +170,7 @@ public class LobbySocketService {
                 if (lobby != null) {
                     lobby.setJugadoresConectados(lobby.getJugadoresConectados() - 1);
                     lobbyRepository.save(lobby);
+                    logger.info("Jugador {} removido del lobby {}", nickname, lobbyName);
                 }
 
                 // Limpiar el mapa de lobby para esta sesión
@@ -168,6 +188,8 @@ public class LobbySocketService {
             String lobbyName = data.getLobbyName();
             String nickname = data.getNickname();
 
+            logger.info("Jugador {} marcándose como listo en lobby {}", nickname, lobbyName);
+
             Lobby lobby = lobbyRepository.findByNombre(lobbyName);
             if (lobby != null) {
                 lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
@@ -180,6 +202,7 @@ public class LobbySocketService {
                 // Comprobar si todos los jugadores están listos
                 if (lobby.getJugadoresListos() == lobby.getJugadoresConectados()) {
                     server.getRoomOperations(lobbyName).sendEvent("allPlayersReady", lobbyName);
+                    logger.info("Todos los jugadores listos en lobby {}", lobbyName);
                 }
             }
         };
@@ -189,6 +212,8 @@ public class LobbySocketService {
         return (client, data, ackRequest) -> {
             String lobbyName = data.getLobbyName();
             String nickname = data.getNickname();
+
+            logger.info("Jugador {} marcándose como no listo en lobby {}", nickname, lobbyName);
 
             Lobby lobby = lobbyRepository.findByNombre(lobbyName);
             if (lobby != null && lobby.getJugadoresListos() > 0) {
@@ -205,6 +230,10 @@ public class LobbySocketService {
     private DataListener<ChatMessageData> onChatMessage() {
         return (client, data, ackRequest) -> {
             String lobbyName = data.getLobbyName();
+            String nickname = data.getNickname();
+            String message = data.getMessage();
+
+            logger.info("Mensaje recibido de {} en lobby {}: {}", nickname, lobbyName, message);
 
             // Reenviar el mensaje a todos en la sala
             server.getRoomOperations(lobbyName).sendEvent("chatMessage", data);
@@ -214,15 +243,19 @@ public class LobbySocketService {
     // Métodos para enviar eventos desde el controlador
     public void notifyLobbyUpdated(String lobbyName, Lobby lobby) {
         server.getRoomOperations(lobbyName).sendEvent("lobbyUpdated", lobby);
+        logger.info("Notificación de actualización enviada al lobby {}", lobbyName);
     }
 
     public void notifyGameStarted(String lobbyName) {
         server.getRoomOperations(lobbyName).sendEvent("gameStarted", lobbyName);
+        logger.info("Notificación de inicio de juego enviada al lobby {}", lobbyName);
     }
 
     public void notifyRoundEnded(String lobbyName, int remainingRounds) {
         server.getRoomOperations(lobbyName).sendEvent("roundEnded",
                 new RoundEndedData(lobbyName, remainingRounds));
+        logger.info("Notificación de fin de ronda enviada al lobby {}. Rondas restantes: {}",
+                lobbyName, remainingRounds);
     }
 }
 
@@ -337,4 +370,5 @@ class RoundEndedData {
     public String getLobbyName() { return lobbyName; }
     public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
     public int getRemainingRounds() { return remainingRounds; }
-    public void setRemainingRounds(int remainingRounds) { this.remainingRounds = remainingRounds; }}
+    public void setRemainingRounds(int remainingRounds) { this.remainingRounds = remainingRounds; }
+}

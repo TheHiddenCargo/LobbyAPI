@@ -5,3 +5,12 @@ spring:
     mongodb:
       uri: mongodb+srv://papaletagg67:${DBLOBBYMONGO}@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
       database: basearsw
+
+  server:
+    port: ${PORT:8080}
+
+  socketio:
+    port: ${PORT:80}
+    hostname: 0.0.0.0
+    origin: "*"
+    context: /socket.io
