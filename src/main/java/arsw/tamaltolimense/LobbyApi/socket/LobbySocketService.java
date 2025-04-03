@@ -1,5 +1,6 @@
 package arsw.tamaltolimense.LobbyApi.socket;
 
+import arsw.tamaltolimense.LobbyApi.controller.LobbyController;
 import arsw.tamaltolimense.LobbyApi.model.Lobby;
 import arsw.tamaltolimense.LobbyApi.repository.LobbyRepository;
 import com.corundumstudio.socketio.*;
@@ -7,6 +8,8 @@ import com.corundumstudio.socketio.listener.ConnectListener;
 import com.corundumstudio.socketio.listener.DataListener;
 import com.corundumstudio.socketio.listener.DisconnectListener;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
@@ -15,7 +18,6 @@ import java.util.HashMap;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 
 @Component
 public class LobbySocketService {
@@ -28,11 +30,13 @@ public class LobbySocketService {
     @Autowired
     private LobbyRepository lobbyRepository;
 
+    @Autowired
+    @Lazy
+    private LobbyController lobbyController;
 
     @PostConstruct
     public void init() {
         try {
-
             Configuration config = new Configuration();
             config.setHostname("0.0.0.0");
             config.setPort(443);
@@ -62,9 +66,9 @@ public class LobbySocketService {
             server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
             server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
 
-            logger.info("Iniciando servidor Socket.IO en puerto 80 con path /socket.io");
+            logger.info("Iniciando servidor Socket.IO en puerto 443 con path /socket.io");
             server.start();
-            logger.info("SocketIO Server iniciado en puerto 80 con path /socket.ioe");
+            logger.info("SocketIO Server iniciado en puerto 443 con path /socket.io");
         } catch (Exception e) {
             logger.error("Error al iniciar SocketIO Server", e);
         }
@@ -94,19 +98,19 @@ public class LobbySocketService {
                     sessionId, nickname, lobbyName);
 
             if (nickname != null && lobbyName != null) {
-                // Manejar la desconexión del jugador
-                Lobby lobby = lobbyRepository.findByNombre(lobbyName);
-                if (lobby != null) {
+                // Obtener el estado actual del lobby
+                ResponseEntity<Lobby> response = lobbyController.obtenerLobby(lobbyName);
+
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    // Actualizar el contador de jugadores conectados
+                    Lobby lobby = response.getBody();
                     lobby.setJugadoresConectados(lobby.getJugadoresConectados() - 1);
 
-                    // Si el jugador estaba listo, hay que verificar si debe restarse
-                    // Esto dependería de tu lógica de negocio
-
+                    // Guardar los cambios usando el repositorio
                     lobbyRepository.save(lobby);
 
                     // Notificar a todos en la sala que el jugador se desconectó
                     server.getRoomOperations(lobbyName).sendEvent("playerLeft", new PlayerLeftData(nickname));
-
                     logger.info("Jugador {} removido del lobby {} por desconexión", nickname, lobbyName);
                 }
             }
@@ -126,18 +130,30 @@ public class LobbySocketService {
             sessionToNickname.put(sessionId, data.getNickname());
             sessionToLobby.put(sessionId, data.getLobbyName());
 
-            // Unir al cliente a la sala
-            client.joinRoom(data.getLobbyName());
+            // Usar el controlador para agregar el jugador
+            ResponseEntity<Lobby> response = lobbyController.agregarJugador(data.getLobbyName(), data.getNickname());
 
-            // Notificar a todos en la sala que un jugador se unió
-            server.getRoomOperations(data.getLobbyName()).sendEvent("playerJoined",
-                    new PlayerJoinedData(data.getNickname()));
+            if (response.getStatusCode().is2xxSuccessful()) {
+                // Unir al cliente a la sala
+                client.joinRoom(data.getLobbyName());
 
-            if (ackRequest.isAckRequested()) {
-                ackRequest.sendAckData("Te has unido al lobby: " + data.getLobbyName());
+                // Notificar a todos en la sala que un jugador se unió
+                server.getRoomOperations(data.getLobbyName()).sendEvent("playerJoined",
+                        new PlayerJoinedData(data.getNickname()));
+
+                if (ackRequest.isAckRequested()) {
+                    ackRequest.sendAckData("Te has unido al lobby: " + data.getLobbyName());
+                }
+
+                logger.info("Jugador {} unido exitosamente al lobby {}", data.getNickname(), data.getLobbyName());
+            } else {
+                if (ackRequest.isAckRequested()) {
+                    ackRequest.sendAckData("Error al unirse al lobby: " + data.getLobbyName());
+                }
+                // Limpiar información de sesión en caso de error
+                sessionToNickname.remove(sessionId);
+                sessionToLobby.remove(sessionId);
             }
-
-            logger.info("Jugador {} unido exitosamente al lobby {}", data.getNickname(), data.getLobbyName());
         };
     }
 
@@ -157,11 +173,9 @@ public class LobbySocketService {
                 server.getRoomOperations(lobbyName).sendEvent("playerLeft",
                         new PlayerLeftData(nickname));
 
-                // Actualizar en la base de datos
-                Lobby lobby = lobbyRepository.findByNombre(lobbyName);
-                if (lobby != null) {
-                    lobby.setJugadoresConectados(lobby.getJugadoresConectados() - 1);
-                    lobbyRepository.save(lobby);
+                // Usar el nuevo método del controlador para gestionar cuando un jugador abandona voluntariamente un lobby
+                ResponseEntity<Lobby> response = lobbyController.quitarJugador(lobbyName, nickname);
+                if (response.getStatusCode().is2xxSuccessful()) {
                     logger.info("Jugador {} removido del lobby {}", nickname, lobbyName);
                 }
 
@@ -182,10 +196,11 @@ public class LobbySocketService {
 
             logger.info("Jugador {} marcándose como listo en lobby {}", nickname, lobbyName);
 
-            Lobby lobby = lobbyRepository.findByNombre(lobbyName);
-            if (lobby != null) {
-                lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
-                lobbyRepository.save(lobby);
+            // Usar el controlador para marcar al jugador como listo
+            ResponseEntity<Lobby> response = lobbyController.agregarJugadorListo(lobbyName);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                Lobby lobby = response.getBody();
 
                 // Notificar a todos en la sala que el jugador está listo
                 server.getRoomOperations(lobbyName).sendEvent("playerReady",
@@ -207,11 +222,10 @@ public class LobbySocketService {
 
             logger.info("Jugador {} marcándose como no listo en lobby {}", nickname, lobbyName);
 
-            Lobby lobby = lobbyRepository.findByNombre(lobbyName);
-            if (lobby != null && lobby.getJugadoresListos() > 0) {
-                lobby.setJugadoresListos(lobby.getJugadoresListos() - 1);
-                lobbyRepository.save(lobby);
+            // Usar el controlador para marcar al jugador como no listo
+            ResponseEntity<Lobby> response = lobbyController.quitarJugadorListo(lobbyName);
 
+            if (response.getStatusCode().is2xxSuccessful()) {
                 // Notificar a todos en la sala que el jugador no está listo
                 server.getRoomOperations(lobbyName).sendEvent("playerNotReady",
                         new PlayerNotReadyData(nickname, lobbyName));

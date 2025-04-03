@@ -41,6 +41,38 @@ public class LobbyController {
             return ResponseEntity.status(401).body("Contraseña incorrecta");
         }
     }
+    @PutMapping("/{nombre}/quitarJugador")
+    public ResponseEntity<Lobby> quitarJugador(@PathVariable String nombre, @RequestParam String nickname) {
+        logger.info("Quitando jugador {} del lobby {}", nickname, nombre);
+        Lobby lobby = lobbyRepository.findByNombre(nombre);
+        if (lobby == null) {
+            logger.warn("Lobby no encontrado: {}", nombre);
+            return ResponseEntity.notFound().build();
+        }
+
+        // Quitar el jugador de la lista si existe
+        if (lobby.getJugadores().contains(nickname)) {
+            lobby.getJugadores().remove(nickname);
+
+            // Decrementar jugadores conectados
+            if (lobby.getJugadoresConectados() > 0) {
+                lobby.setJugadoresConectados(lobby.getJugadoresConectados() - 1);
+            }
+
+            if (lobby.getJugadoresListos() > 0) {
+                lobby.setJugadoresListos(lobby.getJugadoresListos() - 1);
+            }
+
+            lobbyRepository.save(lobby);
+
+            socketHandler.notifyLobbyUpdated(nombre, lobby);
+            logger.info("Jugador {} quitado del lobby {}", nickname, nombre);
+        } else {
+            logger.info("Jugador {} no encontrado en el lobby {}", nickname, nombre);
+        }
+
+        return ResponseEntity.ok(lobby);
+    }
 
     @GetMapping("/{nombre}/agregarListo")
     public ResponseEntity<Lobby> agregarJugadorListo(@PathVariable String nombre) {
