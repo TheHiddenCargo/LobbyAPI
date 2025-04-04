@@ -4,6 +4,7 @@ import arsw.tamaltolimense.LobbyApi.model.Lobby;
 import arsw.tamaltolimense.LobbyApi.repository.LobbyRepository;
 import arsw.tamaltolimense.LobbyApi.socket.LobbySocketService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,26 +76,39 @@ public class LobbyController {
     }
 
     @GetMapping("/{nombre}/agregarListo")
-    public ResponseEntity<Lobby> agregarJugadorListo(@PathVariable String nombre) {
-        logger.info("Agregando jugador listo en lobby: {}", nombre);
-        Lobby lobby = lobbyRepository.findByNombre(nombre);
-        if (lobby == null) {
-            logger.warn("Lobby no encontrado: {}", nombre);
-            return ResponseEntity.notFound().build();
+
+    public ResponseEntity<Lobby> agregarJugadorListo(String nombreLobby) {
+        try {
+            logger.info("Aumentando contador de jugadores listos en lobby: {}", nombreLobby);
+
+            // Buscar el lobby por nombre
+            Lobby lobby = lobbyRepository.findByNombre(nombreLobby);
+
+            if (lobby == null) {
+                logger.error("No se encontró el lobby con nombre: {}", nombreLobby);
+                return ResponseEntity.notFound().build();
+            }
+
+            // Verificar que no exceda el número de jugadores conectados
+            if (lobby.getJugadoresListos() >= lobby.getJugadoresConectados()) {
+                logger.warn("El número de jugadores listos ya es igual al de conectados en lobby: {}", nombreLobby);
+                return ResponseEntity.ok(lobby); // Devolver el lobby sin cambios
+            }
+
+            // Incrementar el contador de jugadores listos
+            lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
+
+            // Guardar los cambios
+            lobby = lobbyRepository.save(lobby);
+
+            logger.info("Jugador marcado como listo. Lobby {} actualizado: {} jugadores listos de {} conectados",
+                    nombreLobby, lobby.getJugadoresListos(), lobby.getJugadoresConectados());
+
+            return ResponseEntity.ok(lobby);
+        } catch (Exception e) {
+            logger.error("Error al aumentar jugadores listos en lobby {}: {}", nombreLobby, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
-        lobby.setJugadoresListos(lobby.getJugadoresListos() + 1);
-        lobbyRepository.save(lobby);
-
-        // Notificar a través de Socket.IO
-        socketHandler.notifyLobbyUpdated(nombre, lobby);
-
-        // Verificar si todos están listos para iniciar
-        if (lobby.getJugadoresListos() == lobby.getJugadoresConectados()) {
-            logger.info("Todos los jugadores listos en lobby: {}. Iniciando juego.", nombre);
-            socketHandler.notifyGameStarted(nombre);
-        }
-
-        return ResponseEntity.ok(lobby);
     }
 
     @GetMapping("/{nombre}/agregarConectado")
@@ -125,9 +139,9 @@ public class LobbyController {
             nuevaLobby.setJugadores(new ArrayList<>());
         }
         nuevaLobby.setJugadoresConectados(1);
-        nuevaLobby.setJugadoresListos(0);
+        nuevaLobby.setJugadoresListos(1);
         Lobby lobbyGuardada = lobbyRepository.save(nuevaLobby);
-        logger.info("Lobby creado exitosamente: {}", nuevaLobby.getNombre());
+        logger.info("Lobby creado exitosamente: {}", nuevaLobby.getNombre(),nuevaLobby.getJugadoresListos());
         return ResponseEntity.ok(lobbyGuardada);
     }
 
