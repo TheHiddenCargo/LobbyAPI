@@ -1,9 +1,11 @@
 package arsw.tamaltolimense.LobbyApi.repository;
 
 import arsw.tamaltolimense.LobbyApi.model.Lobby;
+import com.mongodb.lang.NonNull;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface LobbyRepository extends MongoRepository<Lobby, String> {
@@ -13,4 +15,7 @@ public interface LobbyRepository extends MongoRepository<Lobby, String> {
     // Método que devuelve un Optional<Lobby> (para compatibilidad con el código que usa findByName)
     @Query("{'nombre': ?0}")
     Optional<Lobby> findOptionalByNombre(String lobbyName);
+    @Override
+    @NonNull
+    List<Lobby> findAll();
 }

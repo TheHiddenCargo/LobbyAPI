@@ -3,7 +3,15 @@ spring:
     name: LobbyApi
   data:
     mongodb:
-      uri: mongodb+srv://papaletagg67:${DBLOBBYMONGO}@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
+      uri: mongodb+srv://papaletagg67:Xagohdji02QK7ub8@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
       database: basearsw
+
+
+socket-server:
+  origin: "*"
+  lobby:
+    host: 0.0.0.0
+    port: 4043
+
 
 
