@@ -32,9 +32,11 @@ public class LobbySocketService {
     private final Map<String, List<PlayerState>> gamePlayers = new HashMap<>();
     private final Map<String, Queue<ContainerInfo>> gameContainers = new HashMap<>();
     private final Map<String, Timer> gameTimers = new HashMap<>();
+    private final Map<String, Set<String>> playersReadyForNextRound = new HashMap<>();
+
 
     // URL base del servicio de apuestas
-    private static final String BID_SERVICE_URL = "https://thehiddencargo1.azure-api.net/bids/";
+    private static final String BID_SERVICE_URL = "https://thehiddencargo1.azure-api.net/bids1";
 
     // RestTemplate para comunicación con el servicio de apuestas
     private final RestTemplate restTemplate = new RestTemplate();
@@ -77,6 +79,7 @@ public class LobbySocketService {
             server.addEventListener("playerReady", PlayerReadyData.class, onPlayerReady());
             server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
             server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
+            server.addEventListener("readyForNextRound", ReadyForNextRoundData.class, onReadyForNextRound());
 
             // Eventos del juego
             server.addEventListener("startGame", StartGameData.class, onStartGame());
@@ -328,7 +331,6 @@ public class LobbySocketService {
         };
     }
 
-    // Nuevo método para manejar el inicio del juego
     private DataListener<StartGameData> onStartGame() {
         return (client, data, ackRequest) -> {
             String lobbyName = data.getLobbyName();
@@ -377,14 +379,40 @@ public class LobbySocketService {
                     Queue<ContainerInfo> containers = generateContainers(gameState.getTotalRounds() * 2);
                     gameContainers.put(lobbyName, containers);
 
-                    // Iniciar la primera ronda
-                    startNewRound(lobbyName);
+                    try {
+                        // Importante: Iniciar la primera ronda ANTES de enviar el evento de inicio de juego
+                        // para asegurarnos de que el contenedor está configurado
+                        ContainerInfo firstContainer = containers.peek();
+                        if (firstContainer != null) {
+                            // Solo asignar el contenedor pero NO consumirlo aún de la cola
+                            // startNewRound() se encargará de extraerlo
+                            gameState.setCurrentContainer(firstContainer);
+                            logger.info("Contenedor asignado para primera ronda: {}", firstContainer.getId());
+                        }
 
-                    // Notificar que el juego ha comenzado
-                    server.getRoomOperations(lobbyName).sendEvent("gameStarted",
-                            createGameStartedData(lobbyName, gameState, players));
+                        // Notificar que el juego ha comenzado con información de contenedor pre-asignada
+                        GameStartedData gameStartedData = createGameStartedData(lobbyName, gameState, players);
+                        server.getRoomOperations(lobbyName).sendEvent("gameStarted", gameStartedData);
 
-                    logger.info("Juego iniciado en lobby: {}", lobbyName);
+                        // Log para verificar que el contenedor se envía correctamente
+                        logger.info("Evento gameStarted enviado con contenedor: {}",
+                                gameStartedData.getContainer() != null ?
+                                        gameStartedData.getContainer().getId() : "null");
+
+                        // Pequeña pausa antes de iniciar la primera ronda para que los clientes
+                        // tengan tiempo de procesar el evento gameStarted
+                        new Timer().schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                startNewRound(lobbyName);
+                            }
+                        }, 1000); // 1 segundo de espera
+
+                        logger.info("Juego iniciado en lobby: {}", lobbyName);
+                    } catch (Exception e) {
+                        logger.error("Error al iniciar el juego en lobby {}: {}", lobbyName, e.getMessage(), e);
+                        sendErrorToClient(client, "Error al iniciar el juego: " + e.getMessage(), ackRequest);
+                    }
                 } else {
                     sendErrorToClient(client, "No hay jugadores en el lobby: " + lobbyName, ackRequest);
                 }
@@ -405,21 +433,44 @@ public class LobbySocketService {
         }
 
         data.setPlayers(playerNames);
-        data.setContainer(state.getCurrentContainer());
+
+        // Verificar que el estado tenga un contenedor válido
+        if (state.getCurrentContainer() == null) {
+            logger.error("Error crítico: No hay contenedor disponible al iniciar el juego en lobby {}", lobbyName);
+
+            // Crear un contenedor de emergencia si no hay uno disponible
+            ContainerInfo emergencyContainer = new ContainerInfo();
+            emergencyContainer.setId("emergency-container-" + UUID.randomUUID().toString().substring(0, 8));
+            emergencyContainer.setType("Normal");
+            emergencyContainer.setValue(300);
+
+            // Asignar el contenedor de emergencia al estado y a los datos
+            state.setCurrentContainer(emergencyContainer);
+            data.setContainer(emergencyContainer);
+
+            logger.info("Se ha creado un contenedor de emergencia para el lobby {}: {}",
+                    lobbyName, emergencyContainer.getId());
+        } else {
+            data.setContainer(state.getCurrentContainer());
+        }
+
         data.setInitialBid(100); // Apuesta inicial predeterminada
         data.setRound(state.getCurrentRound());
         data.setTotalRounds(state.getTotalRounds());
 
+        // Log para diagnóstico
+        logger.info("Datos de inicio de juego para lobby {}: ronda={}/{}, jugadores={}, contenedor={}",
+                lobbyName, data.getRound(), data.getTotalRounds(),
+                playerNames.size(), data.getContainer() != null ? data.getContainer().getId() : "null");
+
         return data;
     }
 
-    // Método para iniciar una nueva ronda
     private void startNewRound(String lobbyName) {
         if (!activeGames.containsKey(lobbyName)) {
             logger.warn("No se puede iniciar una nueva ronda. Juego no encontrado: {}", lobbyName);
             return;
         }
-
 
         GameState gameState = activeGames.get(lobbyName);
         Queue<ContainerInfo> containers = gameContainers.get(lobbyName);
@@ -445,26 +496,32 @@ public class LobbySocketService {
         gameState.setCurrentBid(100); // Apuesta inicial
 
         try {
-            // Crear la apuesta inicial en el servicio de apuestas
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("idContainer", container.getId());
-            requestBody.put("initialValue", 100);
+            int initialValue = 100;
+            int realValue = container.getValue();
 
+            // Crear una URL simplificada - MANTENIENDO LA URL ORIGINAL
+            String apiUrl = BID_SERVICE_URL + "/bids/start";
+
+            // Usar un Map<String, String> para los parámetros
+            Map<String, String> params = new HashMap<>();
+            params.put("container", container.getId());
+            params.put("initialValue", String.valueOf(initialValue));
+            params.put("realValue", String.valueOf(realValue));
+
+            // Configurar los headers
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");
 
-            String apiUrl = BID_SERVICE_URL + "/bids/start?idContainer=" + container.getId() +
-                    "&initialValue=100";
+            // Crear la entidad HTTP con el cuerpo JSON
+            HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(params, headers);
 
-            // Llamar al servicio de apuestas para iniciar la subasta
-            HttpEntity<Object> requestEntity = new HttpEntity<>(headers);
+            // Hacer la petición POST con el cuerpo JSON
+            logger.info("Iniciando subasta a {} con contenedor: {}, valor inicial: {}, valor real: {}",
+                    apiUrl, container.getId(), initialValue, realValue);
 
-            // Hacer la petición POST con parámetros de consulta
-            logger.info("Iniciando subasta a {}", apiUrl);
-            ResponseEntity<Object> response = restTemplate.exchange(
+            ResponseEntity<Object> response = restTemplate.postForEntity(
                     apiUrl,
-                    HttpMethod.POST,
                     requestEntity,
                     Object.class
             );
@@ -476,9 +533,32 @@ public class LobbySocketService {
             roundData.setRound(gameState.getCurrentRound());
             roundData.setTotalRounds(gameState.getTotalRounds());
             roundData.setContainer(container);
-            roundData.setInitialBid(100);
+            roundData.setInitialBid(initialValue);
 
-            server.getRoomOperations(lobbyName).sendEvent("newRound", roundData);
+            // Enviar el evento varias veces para asegurar que todos lo reciban
+            for (int attempt = 0; attempt < 3; attempt++) {
+                server.getRoomOperations(lobbyName).sendEvent("newRound", roundData);
+                logger.info("Intento {} - Enviando evento newRound para lobby {}, ronda {}/{}",
+                        attempt + 1, lobbyName, gameState.getCurrentRound(), gameState.getTotalRounds());
+
+                // Pequeña pausa entre intentos
+                if (attempt < 2) Thread.sleep(200);
+            }
+
+            // Enviar evento adicional después de un tiempo para clientes que podrían haber perdido el mensaje
+            new Timer().schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    // Solo enviar si el juego aún está activo y en la misma ronda
+                    if (activeGames.containsKey(lobbyName) &&
+                            "BIDDING".equals(activeGames.get(lobbyName).getStatus()) &&
+                            activeGames.get(lobbyName).getCurrentRound() == roundData.getRound()) {
+                        server.getRoomOperations(lobbyName).sendEvent("newRound", roundData);
+                        logger.info("Enviando evento newRound de respaldo para lobby {}, ronda {}/{}",
+                                lobbyName, roundData.getRound(), roundData.getTotalRounds());
+                    }
+                }
+            }, 2000); // 2 segundos después
 
             // Configurar un temporizador para finalizar la subasta después de un tiempo determinado
             setupAuctionTimer(lobbyName, 30); // 30 segundos por ronda
@@ -486,11 +566,10 @@ public class LobbySocketService {
             logger.info("Nueva ronda iniciada en lobby {}: Ronda {}/{}",
                     lobbyName, gameState.getCurrentRound(), gameState.getTotalRounds());
         } catch (Exception e) {
-            logger.error("Error al iniciar nueva ronda en lobby {}: {}", lobbyName, e.getMessage());
+            logger.error("Error al iniciar nueva ronda en lobby {}: {}", lobbyName, e.getMessage(), e);
             endAuctionRound(lobbyName);
         }
     }
-
     // Método para configurar un temporizador para la subasta actual
     private void setupAuctionTimer(String lobbyName, int seconds) {
         // Cancelar cualquier temporizador existente
@@ -555,35 +634,74 @@ public class LobbySocketService {
             }
 
             try {
+                // Obtener el apostador anterior para devolverle su dinero
+                String previousBidder = gameState.getLastBidder();
+                int previousBid = gameState.getCurrentBid();
+
+                // Si hay un apostador anterior, devolverle su dinero
+                if (previousBidder != null && !previousBidder.equals(nickname)) {
+                    PlayerState previousPlayer = findPlayerByNickname(lobbyName, previousBidder);
+                    if (previousPlayer != null) {
+                        // Devolver la apuesta anterior al saldo del jugador
+                        previousPlayer.setBalance(previousPlayer.getBalance() + previousBid);
+
+                        // Notificar la actualización del saldo
+                        PlayerUpdateData updateData = new PlayerUpdateData();
+                        updateData.setNickname(previousBidder);
+                        updateData.setBalance(previousPlayer.getBalance());
+                        updateData.setScore(previousPlayer.getScore());
+
+                        server.getRoomOperations(lobbyName).sendEvent("playerUpdate", updateData);
+                        logger.info("Devolviendo ${} al jugador anterior {}", previousBid, previousBidder);
+                    }
+                }
+
                 // Enviar la apuesta al servicio de BidService
                 ContainerInfo container = gameState.getCurrentContainer();
 
-                // Crear el payload para el servicio de apuestas
-                Map<String, Object> payload = new HashMap<>();
-                payload.put("newOwner", nickname);
-                payload.put("amount", amount);
-                payload.put("limit", player.getBalance());
+                // Crear una URL simplificada
+                String apiUrl = BID_SERVICE_URL + "/bids/offer";
 
-                // Configurar para comunicarse con el WebSocket del servicio de apuestas
-                // Nota: Esto normalmente requeriría un cliente WebSocket específico
-                // Como alternativa, usamos el endpoint REST
+                // Usar un Map<String, String> para los parámetros
+                Map<String, String> params = new HashMap<>();
+                params.put("container", container.getId());
+                params.put("owner", nickname);
+                params.put("amount", String.valueOf(amount));
 
+                // Configurar los headers
                 HttpHeaders headers = new HttpHeaders();
                 headers.setContentType(MediaType.APPLICATION_JSON);
-                headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");;
+                headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");
 
-                HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(payload, headers);
+                // Crear la entidad HTTP con el cuerpo JSON
+                HttpEntity<Map<String, String>> requestEntity = new HttpEntity<>(params, headers);
 
-                // Hacer la petición REST
-                restTemplate.postForEntity(
-                        BID_SERVICE_URL + "/bids/offer?container=" + container.getId() + "&owner=" + nickname + "&amount=" + amount,
+                // Hacer la petición POST con el cuerpo JSON
+                logger.info("Enviando apuesta a {} con contenedor: {}, dueño: {}, monto: {}",
+                        apiUrl, container.getId(), nickname, amount);
+
+                ResponseEntity<Object> response = restTemplate.postForEntity(
+                        apiUrl,
                         requestEntity,
                         Object.class
                 );
 
+                logger.info("Respuesta del servicio de apuestas: {}", response.getStatusCode());
+
                 // Actualizar el estado del juego
                 gameState.setCurrentBid(amount);
                 gameState.setLastBidder(nickname);
+
+                // Restar el monto de la apuesta del saldo del jugador
+                player.setBalance(player.getBalance() - amount);
+
+                // Notificar la actualización del saldo del nuevo apostador
+                PlayerUpdateData newBidderUpdate = new PlayerUpdateData();
+                newBidderUpdate.setNickname(nickname);
+                newBidderUpdate.setBalance(player.getBalance());
+                newBidderUpdate.setScore(player.getScore());
+
+                server.getRoomOperations(lobbyName).sendEvent("playerUpdate", newBidderUpdate);
 
                 // Enviar la nueva apuesta a todos los jugadores
                 server.getRoomOperations(lobbyName).sendEvent("newBid",
@@ -597,7 +715,7 @@ public class LobbySocketService {
                 }
             } catch (Exception e) {
                 logger.error("Error al procesar apuesta de {} en lobby {}: {}",
-                        nickname, lobbyName, e.getMessage());
+                        nickname, lobbyName, e.getMessage(), e);
                 sendErrorToClient(client, "Error al procesar la apuesta: " + e.getMessage(), ackRequest);
             }
         };
@@ -634,6 +752,30 @@ public class LobbySocketService {
             return;
         }
 
+        try {
+            // Cerrar la apuesta actual
+            String closeUrl = BID_SERVICE_URL + "/bids/close/" + container.getId();
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");
+
+            HttpEntity<Object> requestEntity = new HttpEntity<>(headers);
+
+            // Hacer la petición POST para cerrar la apuesta
+            logger.info("Cerrando apuesta para el contenedor: {}", container.getId());
+            ResponseEntity<Object> closeResponse = restTemplate.exchange(
+                    closeUrl,
+                    HttpMethod.POST,
+                    requestEntity,
+                    Object.class
+            );
+
+            logger.info("Respuesta al cerrar apuesta: {}", closeResponse.getStatusCode());
+        } catch (Exception e) {
+            logger.error("Error al cerrar apuesta para contenedor {}: {}",
+                    container.getId(), e.getMessage());
+            // Continuamos con el proceso a pesar del error
+        }
+
         // Calcular resultados
         int containerValue = container.getValue();
         int profit = containerValue - bidAmount;
@@ -641,8 +783,18 @@ public class LobbySocketService {
         // Actualizar el saldo y puntuación del ganador
         PlayerState winnerPlayer = findPlayerByNickname(lobbyName, winner);
         if (winnerPlayer != null) {
-            winnerPlayer.setBalance(winnerPlayer.getBalance() - bidAmount + containerValue);
+            // Importante: Como ya se le descontó el monto de la apuesta anteriormente,
+            // solo necesitamos agregarle el valor del contenedor
+            winnerPlayer.setBalance(winnerPlayer.getBalance() + containerValue);
             winnerPlayer.setScore(winnerPlayer.getScore() + profit);
+
+            // Enviar actualización del jugador ganador
+            PlayerUpdateData winnerUpdate = new PlayerUpdateData();
+            winnerUpdate.setNickname(winner);
+            winnerUpdate.setBalance(winnerPlayer.getBalance());
+            winnerUpdate.setScore(winnerPlayer.getScore());
+
+            server.getRoomOperations(lobbyName).sendEvent("playerUpdate", winnerUpdate);
         }
 
         // Enviar resultado a todos los jugadores
@@ -673,14 +825,7 @@ public class LobbySocketService {
         logger.info("Subasta finalizada en lobby {}. Ganador: {}, Beneficio: ${}",
                 lobbyName, winner, profit);
 
-        // Pasar a la siguiente ronda después de un breve delay
-        new Timer().schedule(new TimerTask() {
-            @Override
-            public void run() {
-                gameState.setCurrentRound(gameState.getCurrentRound() + 1);
-                startNewRound(lobbyName);
-            }
-        }, 5000); // 5 segundos de delay para mostrar resultados
+        gameState.setCurrentRound(gameState.getCurrentRound() + 1);
     }
 
     // Método para manejar cuando un jugador abandona el juego
@@ -723,9 +868,23 @@ public class LobbySocketService {
     }
 
     // Método para finalizar el juego
+    // Método para finalizar el juego
     private void endGame(String lobbyName) {
         if (!activeGames.containsKey(lobbyName)) {
+            logger.warn("No se puede finalizar el juego. Juego no encontrado: {}", lobbyName);
             return;
+        }
+
+        logger.info("Finalizando juego en lobby {}", lobbyName);
+
+        // Actualizar el estado del juego a FINISHED para evitar cualquier procesamiento adicional
+        GameState gameState = activeGames.get(lobbyName);
+        gameState.setStatus("FINISHED");
+
+        // Cancelar cualquier temporizador activo
+        if (gameTimers.containsKey(lobbyName)) {
+            gameTimers.get(lobbyName).cancel();
+            gameTimers.remove(lobbyName);
         }
 
         // Determinar ganador
@@ -744,27 +903,119 @@ public class LobbySocketService {
             endData.setWinner(winner.getNickname());
             endData.setFinalScores(players);
 
-            // Enviar resultado a todos los jugadores
-            server.getRoomOperations(lobbyName).sendEvent("gameEnd", endData);
-            logger.info("Juego finalizado en lobby {}. Ganador: {}", lobbyName, winner.getNickname());
-        }
+            try {
+                // Enviar resultado a todos los jugadores con múltiples intentos
+                for (int attempt = 0; attempt < 3; attempt++) {
+                    server.getRoomOperations(lobbyName).sendEvent("gameEnd", endData);
+                    logger.info("Intento {} - Enviando evento gameEnd para lobby {}. Ganador: {}",
+                            attempt + 1, lobbyName, winner.getNickname());
 
-        // Cancelar cualquier temporizador activo
-        if (gameTimers.containsKey(lobbyName)) {
-            gameTimers.get(lobbyName).cancel();
-            gameTimers.remove(lobbyName);
-        }
+                    // Pequeña pausa entre intentos
+                    if (attempt < 2) Thread.sleep(500);
+                }
 
-        // Limpiar recursos
-        activeGames.remove(lobbyName);
-        gamePlayers.remove(lobbyName);
-        gameContainers.remove(lobbyName);
+                // Esperar un momento y enviar un evento de respaldo para asegurar que todos reciban la notificación
+                new Timer().schedule(new TimerTask() {
+                    @Override
+                    public void run() {
+                        try {
+                            // Verificar si el juego aún está en la colección (por si fue removido)
+                            if (activeGames.containsKey(lobbyName)) {
+                                server.getRoomOperations(lobbyName).sendEvent("gameEnd", endData);
+                                logger.info("Enviando evento gameEnd de respaldo para lobby {}", lobbyName);
+                            }
+                        } catch (Exception e) {
+                            logger.error("Error al enviar evento gameEnd de respaldo: {}", e.getMessage());
+                        }
+                    }
+                }, 2000); // Enviar evento de respaldo después de 2 segundos
+            } catch (Exception e) {
+                logger.error("Error al enviar evento gameEnd: {}", e.getMessage());
+            } finally {
+                // Asegurarnos de limpiar recursos
+                cleanupGame(lobbyName);
+            }
+        } else {
+            logger.warn("No hay jugadores en el juego al finalizar. Lobby: {}", lobbyName);
+            cleanupGame(lobbyName);
+        }
+    }
+
+    // Método auxiliar para limpiar recursos del juego
+    private void cleanupGame(String lobbyName) {
+        try {
+            // Limpiar recursos con un pequeño retraso para asegurar que todos los eventos se procesen
+            new Timer().schedule(new TimerTask() {
+                @Override
+                public void run() {
+                    activeGames.remove(lobbyName);
+                    gamePlayers.remove(lobbyName);
+                    gameContainers.remove(lobbyName);
+                    logger.info("Recursos del juego liberados para lobby {}", lobbyName);
+                }
+            }, 5000); // 5 segundos de espera antes de limpiar
+        } catch (Exception e) {
+            logger.error("Error al limpiar recursos del juego: {}", e.getMessage());
+        }
     }
 
     // Métodos para enviar eventos desde el controlador
     public void notifyLobbyUpdated(String lobbyName, Lobby lobby) {
         server.getRoomOperations(lobbyName).sendEvent("lobbyUpdated", lobby);
         logger.info("Notificación de actualización enviada al lobby {}", lobbyName);
+    }
+    private DataListener<ReadyForNextRoundData> onReadyForNextRound() {
+        return (client, data, ackRequest) -> {
+            String lobbyName = data.getLobbyName();
+            String nickname = data.getNickname();
+
+            logger.info("Jugador {} está listo para la siguiente ronda en lobby {}", nickname, lobbyName);
+
+            if (!activeGames.containsKey(lobbyName)) {
+                logger.warn("No se encontró juego activo para lobby: {}", lobbyName);
+                return;
+            }
+
+            // Obtener o crear el conjunto de jugadores listos para este lobby
+            Set<String> readyPlayers = playersReadyForNextRound.computeIfAbsent(lobbyName, k -> new HashSet<>());
+
+            // Añadir este jugador al conjunto
+            readyPlayers.add(nickname);
+
+            // Notificar a todos los jugadores sobre el nuevo jugador listo
+            server.getRoomOperations(lobbyName).sendEvent("playerReadyForNextRound",
+                    new ReadyPlayerData(nickname, lobbyName));
+
+            // Verificar si todos los jugadores están listos
+            List<PlayerState> allPlayers = gamePlayers.get(lobbyName);
+            if (allPlayers != null && !allPlayers.isEmpty()) {
+                int totalPlayers = allPlayers.size();
+                int readyCount = readyPlayers.size();
+
+                logger.info("Estado de listos en lobby {}: {}/{}", lobbyName, readyCount, totalPlayers);
+
+                if (readyCount >= totalPlayers) {
+                    // Todos los jugadores están listos
+                    logger.info("Todos los jugadores están listos para la siguiente ronda en lobby {}", lobbyName);
+
+                    // Notificar a todos que todos están listos
+                    server.getRoomOperations(lobbyName).sendEvent("allPlayersReadyForNextRound",
+                            new AllReadyData(lobbyName));
+
+                    // Limpiar el conjunto de jugadores listos
+                    readyPlayers.clear();
+
+                    // Si el juego está en el último round, finalizarlo
+                    GameState gameState = activeGames.get(lobbyName);
+                    if (gameState.getCurrentRound() > gameState.getTotalRounds()) {
+                        endGame(lobbyName);
+                    } else {
+                        // Iniciar la siguiente ronda
+                        startNewRound(lobbyName);
+                    }
+                }
+            }
+        };
     }
 
     public void notifyGameStarted(String lobbyName) {
@@ -785,40 +1036,117 @@ public class LobbySocketService {
         logger.info("Notificación de fin de juego enviada al lobby {}", lobbyName);
     }
 
-    // Método para generar contenedores para el juego
     private Queue<ContainerInfo> generateContainers(int count) {
         Queue<ContainerInfo> containers = new LinkedList<>();
-
-        // Generar contenedores con distintos tipos y valores
-        String[] types = {"Normal", "Raro", "Épico", "Legendario"};
         Random random = new Random();
 
         for (int i = 0; i < count; i++) {
-            ContainerInfo container = new ContainerInfo();
-            container.setId("container-" + UUID.randomUUID().toString().substring(0, 8));
+            try {
+                // Configurar los headers para la petición
+                HttpHeaders headers = new HttpHeaders();
+                headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");
+                HttpEntity<Object> requestEntity = new HttpEntity<>(headers);
 
-            // Asignar un tipo aleatorio
-            String type = types[random.nextInt(types.length)];
-            container.setType(type);
+                // Realizar la petición GET al microservicio de contenedores
+                String apiUrl = "https://thehiddencargo1.azure-api.net/api/contenedor";
+                ResponseEntity<Map> response = restTemplate.exchange(
+                        apiUrl,
+                        HttpMethod.GET,
+                        requestEntity,
+                        Map.class
+                );
 
-            // Asignar un valor base según su tipo
-            int baseValue;
-            switch (type) {
-                case "Raro":
-                    baseValue = 500 + random.nextInt(500);
-                    break;
-                case "Épico":
-                    baseValue = 1000 + random.nextInt(1000);
-                    break;
-                case "Legendario":
-                    baseValue = 2000 + random.nextInt(3000);
-                    break;
-                default: // Normal
-                    baseValue = 200 + random.nextInt(300);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    Map<String, Object> containerData = response.getBody();
+
+                    ContainerInfo container = new ContainerInfo();
+                    container.setId("container-" + UUID.randomUUID().toString().substring(0, 8));
+
+                    // Obtener el color del contenedor y usarlo para determinar el tipo
+                    String color = (String) containerData.get("color");
+
+                    // Mapear color a tipo (adaptar según necesites)
+                    String type;
+                    if ("gris".equalsIgnoreCase(color)) {
+                        type = "Raro";
+                    } else if ("blanco".equalsIgnoreCase(color)) {
+                        type = "Normal";
+                    } else if ("azul".equalsIgnoreCase(color)) {
+                        type = "Épico";
+                    } else if ("dorado".equalsIgnoreCase(color)) {
+                        type = "Legendario";
+                    } else {
+                        type = "Normal"; // Por defecto
+                    }
+                    container.setType(type);
+
+                    // Obtener y procesar objetos para calcular el valor
+                    List<Map<String, Object>> objetos = (List<Map<String, Object>>) containerData.get("objetos");
+                    if (objetos != null && !objetos.isEmpty()) {
+                        // Calcular el valor total como suma de precios de los objetos
+                        double valorTotal = 0;
+                        for (Map<String, Object> objeto : objetos) {
+                            if (objeto.containsKey("precio")) {
+                                double precio = ((Number) objeto.get("precio")).doubleValue();
+                                valorTotal += precio;
+                            }
+                        }
+
+                        // Establecer el valor total redondeado a entero
+                        container.setValue((int) Math.round(valorTotal));
+
+                        // Guardar información adicional en el ID para recuperarla después
+                        // Formato: container-[UUID]-color:[color]-objects:[objeto1,precio1;objeto2,precio2]
+                        StringBuilder idBuilder = new StringBuilder(container.getId());
+                        idBuilder.append("-color:").append(color);
+                        idBuilder.append("-objects:");
+
+                        for (int j = 0; j < objetos.size(); j++) {
+                            Map<String, Object> objeto = objetos.get(j);
+                            String nombre = (String) objeto.get("nombre");
+                            double precio = ((Number) objeto.get("precio")).doubleValue();
+
+                            idBuilder.append(nombre).append(",").append(precio);
+                            if (j < objetos.size() - 1) {
+                                idBuilder.append(";");
+                            }
+                        }
+
+                        container.setId(idBuilder.toString());
+                    } else {
+                        // Si no hay objetos, asignar un valor por defecto según el tipo
+                        int valor;
+                        switch (type) {
+                            case "Raro":
+                                valor = 500 + random.nextInt(500);
+                                break;
+                            case "Épico":
+                                valor = 1000 + random.nextInt(1000);
+                                break;
+                            case "Legendario":
+                                valor = 2000 + random.nextInt(3000);
+                                break;
+                            default: // Normal
+                                valor = 200 + random.nextInt(300);
+                        }
+                        container.setValue(valor);
+                    }
+
+                    logger.info("Contenedor obtenido de API: id={}, tipo={}, valor={}",
+                            container.getId(), container.getType(), container.getValue());
+
+                    containers.add(container);
+                } else {
+                    logger.warn("Error al obtener contenedor desde API. Generando uno local. Respuesta: {}",
+                            response.getStatusCode());
+                    // Generar contenedor local en caso de error
+
+                }
+            } catch (Exception e) {
+                logger.error("Error al comunicarse con API de contenedores: {}", e.getMessage());
+                // Generar contenedor local en caso de error
+
             }
-            container.setValue(baseValue);
-
-            containers.add(container);
         }
 
         return containers;
@@ -1122,6 +1450,35 @@ class PlayerNotReadyData {
     public String getLobbyName() { return lobbyName; }
     public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
 }
+class ReadyPlayerData {
+    private String nickname;
+    private String lobbyName;
+
+    public ReadyPlayerData() {}
+
+    public ReadyPlayerData(String nickname, String lobbyName) {
+        this.nickname = nickname;
+        this.lobbyName = lobbyName;
+    }
+
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public String getLobbyName() { return lobbyName; }
+    public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
+}
+
+class AllReadyData {
+    private String lobbyName;
+
+    public AllReadyData() {}
+
+    public AllReadyData(String lobbyName) {
+        this.lobbyName = lobbyName;
+    }
+
+    public String getLobbyName() { return lobbyName; }
+    public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
+}
 
 class ChatMessageData {
     private String nickname;
@@ -1136,6 +1493,17 @@ class ChatMessageData {
     public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
     public String getMessage() { return message; }
     public void setMessage(String message) { this.message = message; }
+}
+class ReadyForNextRoundData {
+    private String nickname;
+    private String lobbyName;
+
+    public ReadyForNextRoundData() {}
+
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public String getLobbyName() { return lobbyName; }
+    public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
 }
 
 class RoundEndedData {
