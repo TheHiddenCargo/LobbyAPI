@@ -35,7 +35,7 @@ public class LobbySocketService {
     private final Map<String, Set<String>> playersReadyForNextRound = new HashMap<>();
 
 
-    // URL base del servicio de apuestas
+    // URL base
     private static final String BID_SERVICE_URL = "https://thehiddencargo1.azure-api.net/bids";
 
     // RestTemplate para comunicación con el servicio de apuestas
