@@ -1,0 +1,251 @@
+{
+  "info": {
+    "_postman_id": "f8a2e3b1-d5c6-4e3e-8e9f-1a2b3c4d5e6f",
+    "name": "Tamal Tolimense Lobby API",
+    "description": "Collection para probar los endpoints de la API del lobby del juego Tamal Tolimense. Base URL: apilobby-gkevb2axedbrejcz.centralus-01.azurewebsites.net",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://apilobby-gkevb2axedbrejcz.centralus-01.azurewebsites.net",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Crear Lobby",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"nombre\": \"LobbyPrueba\",\n    \"contraseña\": \"password123\",\n    \"jugadores\": [],\n    \"jugadoresConectados\": 0,\n    \"jugadoresListos\": 0,\n    \"maxJugadoresConectados\": 4,\n    \"numeroDeRondas\": 3,\n    \"modoDeJuego\": \"NORMAL\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/lobbies",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies"
+          ]
+        },
+        "description": "Crea un nuevo lobby con los parámetros proporcionados"
+      }
+    },
+    {
+      "name": "Listar Lobbies",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/listar",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "listar"
+          ]
+        },
+        "description": "Obtiene la lista de todos los lobbies disponibles (sin mostrar las contraseñas)"
+      }
+    },
+    {
+      "name": "Obtener Lobby por Nombre",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}"
+          ]
+        },
+        "description": "Obtiene la información de un lobby específico por su nombre"
+      }
+    },
+    {
+      "name": "Verificar Contraseña de Lobby",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"contraseña\": \"password123\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/verificar",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "verificar"
+          ]
+        },
+        "description": "Verifica si la contraseña proporcionada es correcta para el lobby especificado"
+      }
+    },
+    {
+      "name": "Agregar Jugador al Lobby",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/agregarJugador?nickname={{nickname}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "agregarJugador"
+          ],
+          "query": [
+            {
+              "key": "nickname",
+              "value": "{{nickname}}"
+            }
+          ]
+        },
+        "description": "Agrega un jugador al lobby especificado"
+      }
+    },
+    {
+      "name": "Quitar Jugador del Lobby",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/quitarJugador?nickname={{nickname}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "quitarJugador"
+          ],
+          "query": [
+            {
+              "key": "nickname",
+              "value": "{{nickname}}"
+            }
+          ]
+        },
+        "description": "Quita un jugador del lobby especificado"
+      }
+    },
+    {
+      "name": "Agregar Jugador Conectado",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/agregarConectado",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "agregarConectado"
+          ]
+        },
+        "description": "Incrementa el contador de jugadores conectados en el lobby"
+      }
+    },
+    {
+      "name": "Agregar Jugador Listo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/agregarListo",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "agregarListo"
+          ]
+        },
+        "description": "Incrementa el contador de jugadores listos en el lobby"
+      }
+    },
+    {
+      "name": "Quitar Jugador Listo",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/quitarListo",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "quitarListo"
+          ]
+        },
+        "description": "Decrementa el contador de jugadores listos en el lobby"
+      }
+    },
+    {
+      "name": "Restar Ronda",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}/restarRonda",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}",
+            "restarRonda"
+          ]
+        },
+        "description": "Decrementa el contador de rondas restantes del lobby"
+      }
+    },
+    {
+      "name": "Borrar Lobby",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/lobbies/{{lobby_nombre}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "lobbies",
+            "{{lobby_nombre}}"
+          ]
+        },
+        "description": "Elimina un lobby específico por su nombre"
+      }
+    }
+  ]
+}
