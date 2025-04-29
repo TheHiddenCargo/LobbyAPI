@@ -33,6 +33,7 @@ public class LobbySocketService {
     private final Map<String, Queue<ContainerInfo>> gameContainers = new HashMap<>();
     private final Map<String, Timer> gameTimers = new HashMap<>();
     private final Map<String, Set<String>> playersReadyForNextRound = new HashMap<>();
+    private final Map<String, Integer> playerBalances = new HashMap<>();
 
 
     // URL base
@@ -80,6 +81,7 @@ public class LobbySocketService {
             server.addEventListener("playerNotReady", PlayerNotReadyData.class, onPlayerNotReady());
             server.addEventListener("chatMessage", ChatMessageData.class, onChatMessage());
             server.addEventListener("readyForNextRound", ReadyForNextRoundData.class, onReadyForNextRound());
+            server.addEventListener("updatePlayerBalance", PlayerBalanceData.class, onUpdatePlayerBalance());
 
             // Eventos del juego
             server.addEventListener("startGame", StartGameData.class, onStartGame());
@@ -143,6 +145,113 @@ public class LobbySocketService {
             // Limpiar los mapas
             sessionToNickname.remove(sessionId);
             sessionToLobby.remove(sessionId);
+        };
+    }
+    // Método actualizado para actualizar el balance en el servicio externo
+    private void updateUserBalance(String nickname, int profit) {
+        try {
+            // Crear los datos para la petición
+            Map<String, Object> requestData = new HashMap<>();
+            requestData.put("username", nickname);
+            requestData.put("amount", profit);
+
+            // Configurar los headers con la clave de suscripción correcta
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("Ocp-Apim-Subscription-Key", "b553314cb92447a6bb13871a44b16726");
+
+            // Crear la entidad HTTP con el cuerpo JSON
+            HttpEntity<Map<String, Object>> requestEntity = new HttpEntity<>(requestData, headers);
+
+            // URL del servicio
+            String apiUrl = "https://thehiddencargo1.azure-api.net/creation/polling/users/offer/username";
+
+            // Hacer la petición POST
+            logger.info("Enviando actualización de balance para usuario {}: profit={}", nickname, profit);
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    apiUrl,
+                    HttpMethod.POST,
+                    requestEntity,
+                    Map.class
+            );
+
+            // Verificar respuesta
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                Map<String, Object> responseData = response.getBody();
+                if (responseData.containsKey("userBalance")) {
+                    int newBalance = ((Number) responseData.get("userBalance")).intValue();
+                    logger.info("Balance actualizado para usuario {}: nuevo balance={}", nickname, newBalance);
+
+                    // Actualizar el balance en el juego con el nuevo valor del servicio
+                    // Esto es importante para mantener sincronizado el balance del juego con el del sistema
+                    updatePlayerBalanceFromService(nickname, newBalance);
+                } else {
+                    logger.warn("La respuesta del servicio no contiene el campo userBalance: {}", responseData);
+                }
+            } else {
+                logger.error("Error al actualizar balance para usuario {}: {}", nickname, response.getStatusCode());
+            }
+        } catch (Exception e) {
+            logger.error("Error al enviar actualización de balance para usuario {}: {}", nickname, e.getMessage(), e);
+        }
+    }
+
+    private void updatePlayerBalanceFromService(String nickname, int newBalance) {
+        // Buscar al jugador en todos los juegos activos
+        for (Map.Entry<String, List<PlayerState>> entry : gamePlayers.entrySet()) {
+            String lobbyName = entry.getKey();
+            List<PlayerState> players = entry.getValue();
+
+            for (PlayerState player : players) {
+                if (player.getNickname().equals(nickname)) {
+                    // Actualizamos el balance con el valor del servicio
+                    player.setBalance(newBalance);
+
+                    // Notificar a todos los clientes sobre el balance actualizado
+                    PlayerUpdateData updateData = new PlayerUpdateData();
+                    updateData.setNickname(nickname);
+                    updateData.setBalance(newBalance);
+                    updateData.setScore(player.getScore());
+
+                    server.getRoomOperations(lobbyName).sendEvent("playerUpdate", updateData);
+                    logger.info("Balance de jugador {} actualizado con valor del servicio: {}", nickname, newBalance);
+
+                    // Actualizamos también el mapa de balances para este jugador
+                    playerBalances.put(nickname, newBalance);
+                    break;
+                }
+            }
+        }
+    }
+    private DataListener<PlayerBalanceData> onUpdatePlayerBalance() {
+        return (client, data, ackRequest) -> {
+            String nickname = data.getNickname();
+            String lobbyName = data.getLobbyName();
+            int initialBalance = data.getInitialBalance();
+
+            logger.info("Recibido balance inicial para jugador {}: {}", nickname, initialBalance);
+
+            // Almacenar el balance del jugador
+            playerBalances.put(nickname, initialBalance);
+
+            // Si hay un juego activo, actualizar el balance del jugador
+            if (activeGames.containsKey(lobbyName)) {
+                List<PlayerState> players = gamePlayers.get(lobbyName);
+                if (players != null) {
+                    for (PlayerState player : players) {
+                        if (player.getNickname().equals(nickname)) {
+                            player.setBalance(initialBalance);
+                            logger.info("Balance actualizado para jugador {} en juego activo: {}",
+                                    nickname, initialBalance);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (ackRequest.isAckRequested()) {
+                ackRequest.sendAckData("Balance actualizado correctamente");
+            }
         };
     }
 
@@ -369,7 +478,17 @@ public class LobbySocketService {
                     for (String playerName : playersList) {
                         PlayerState player = new PlayerState();
                         player.setNickname(playerName);
-                        player.setBalance(1000); // Saldo inicial
+
+                        // Buscar si existe un balance personalizado para este jugador
+                        Integer customBalance = playerBalances.getOrDefault(playerName, null);
+                        if (customBalance != null && customBalance > 0) {
+                            player.setBalance(customBalance); // Usar el balance personalizado
+                            logger.info("Usando balance personalizado para jugador {}: {}", playerName, customBalance);
+                        } else {
+                            player.setBalance(2000); // Usar el balance por defecto
+                            logger.info("Usando balance por defecto para jugador {}: 2000", playerName);
+                        }
+
                         player.setScore(0);
                         players.add(player);
                     }
@@ -570,6 +689,7 @@ public class LobbySocketService {
             endAuctionRound(lobbyName);
         }
     }
+
     // Método para configurar un temporizador para la subasta actual
     private void setupAuctionTimer(String lobbyName, int seconds) {
         // Cancelar cualquier temporizador existente
@@ -721,7 +841,7 @@ public class LobbySocketService {
         };
     }
 
-    // Método para finalizar una ronda de subasta
+    // Método para finalizar una ronda de subasta (modificado)
     private void endAuctionRound(String lobbyName) {
         if (!activeGames.containsKey(lobbyName)) {
             logger.warn("No se puede finalizar la ronda. Juego no encontrado: {}", lobbyName);
@@ -783,8 +903,12 @@ public class LobbySocketService {
         // Actualizar el saldo y puntuación del ganador
         PlayerState winnerPlayer = findPlayerByNickname(lobbyName, winner);
         if (winnerPlayer != null) {
-            // Importante: Como ya se le descontó el monto de la apuesta anteriormente,
-            // solo necesitamos agregarle el valor del contenedor
+            // CAMBIO: Primero enviamos el beneficio al servicio externo
+            // Esto actualizará el balance en el servicio y nos devolverá el nuevo valor
+            updateUserBalance(winner, profit);
+
+            // Importante: Mantenemos la lógica original, pero el balance real será actualizado
+            // desde el servicio a través del método updateUserBalance y updatePlayerBalanceFromService
             winnerPlayer.setBalance(winnerPlayer.getBalance() + containerValue);
             winnerPlayer.setScore(winnerPlayer.getScore() + profit);
 
@@ -1465,6 +1589,18 @@ class ReadyPlayerData {
     public void setNickname(String nickname) { this.nickname = nickname; }
     public String getLobbyName() { return lobbyName; }
     public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
+}
+class PlayerBalanceData {
+    private String nickname;
+    private String lobbyName;
+    private int initialBalance;
+
+    public String getNickname() { return nickname; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public String getLobbyName() { return lobbyName; }
+    public void setLobbyName(String lobbyName) { this.lobbyName = lobbyName; }
+    public int getInitialBalance() { return initialBalance; }
+    public void setInitialBalance(int initialBalance) { this.initialBalance = initialBalance; }
 }
 
 class AllReadyData {
