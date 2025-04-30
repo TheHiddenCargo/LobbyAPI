@@ -76,22 +76,21 @@ public class LobbyController {
     }
 
     @GetMapping("/{nombre}/agregarListo")
-
-    public ResponseEntity<Lobby> agregarJugadorListo(String nombreLobby) {
+    public ResponseEntity<Lobby> agregarJugadorListo(@PathVariable String nombre) {
         try {
-            logger.info("Aumentando contador de jugadores listos en lobby: {}", nombreLobby);
+            logger.info("Aumentando contador de jugadores listos en lobby: {}", nombre);
 
             // Buscar el lobby por nombre
-            Lobby lobby = lobbyRepository.findByNombre(nombreLobby);
+            Lobby lobby = lobbyRepository.findByNombre(nombre);
 
             if (lobby == null) {
-                logger.error("No se encontró el lobby con nombre: {}", nombreLobby);
+                logger.error("No se encontró el lobby con nombre: {}", nombre);
                 return ResponseEntity.notFound().build();
             }
 
             // Verificar que no exceda el número de jugadores conectados
             if (lobby.getJugadoresListos() >= lobby.getJugadoresConectados()) {
-                logger.warn("El número de jugadores listos ya es igual al de conectados en lobby: {}", nombreLobby);
+                logger.warn("El número de jugadores listos ya es igual al de conectados en lobby: {}", nombre);
                 return ResponseEntity.ok(lobby); // Devolver el lobby sin cambios
             }
 
@@ -102,11 +101,11 @@ public class LobbyController {
             lobby = lobbyRepository.save(lobby);
 
             logger.info("Jugador marcado como listo. Lobby {} actualizado: {} jugadores listos de {} conectados",
-                    nombreLobby, lobby.getJugadoresListos(), lobby.getJugadoresConectados());
+                    nombre, lobby.getJugadoresListos(), lobby.getJugadoresConectados());
 
             return ResponseEntity.ok(lobby);
         } catch (Exception e) {
-            logger.error("Error al aumentar jugadores listos en lobby {}: {}", nombreLobby, e.getMessage(), e);
+            logger.error("Error al aumentar jugadores listos en lobby {}: {}", nombre, e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
