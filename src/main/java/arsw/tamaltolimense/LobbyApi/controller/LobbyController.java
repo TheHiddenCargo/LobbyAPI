@@ -2,7 +2,6 @@ package arsw.tamaltolimense.LobbyApi.controller;
 
 import arsw.tamaltolimense.LobbyApi.model.Lobby;
 import arsw.tamaltolimense.LobbyApi.repository.LobbyRepository;
-import arsw.tamaltolimense.LobbyApi.socket.LobbySocketService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,8 +22,7 @@ public class LobbyController {
     @Autowired
     private LobbyRepository lobbyRepository;
 
-    @Autowired
-    private LobbySocketService socketHandler;
+
 
     @PostMapping("/{nombre}/verificar")
     public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
@@ -64,10 +62,23 @@ public class LobbyController {
                 lobby.setJugadoresListos(lobby.getJugadoresListos() - 1);
             }
 
-            lobbyRepository.save(lobby);
+            // Verificar si la lista de jugadores está vacía
+            if (lobby.getJugadores().isEmpty() || lobby.getJugadoresConectados() == 0) {
+                // Si no hay jugadores, eliminar el lobby
+                logger.info("Eliminando lobby {} porque no quedan jugadores", nombre);
+                lobbyRepository.delete(lobby);
 
-            socketHandler.notifyLobbyUpdated(nombre, lobby);
-            logger.info("Jugador {} quitado del lobby {}", nickname, nombre);
+                // Notificar que el lobby ha sido eliminado (opcional)
+                // Podrías crear un nuevo evento para esto si es necesario
+
+                return ResponseEntity.noContent().build(); // 204 No Content
+            } else {
+                // Guardar los cambios
+                lobbyRepository.save(lobby);
+
+                // Notificar a través de Socket.I
+                logger.info("Jugador {} quitado del lobby {}", nickname, nombre);
+            }
         } else {
             logger.info("Jugador {} no encontrado en el lobby {}", nickname, nombre);
         }
@@ -121,8 +132,6 @@ public class LobbyController {
         lobby.setJugadoresConectados(lobby.getJugadoresConectados() + 1);
         lobbyRepository.save(lobby);
 
-        // Notificar a través de Socket.IO
-        socketHandler.notifyLobbyUpdated(nombre, lobby);
 
         return ResponseEntity.ok(lobby);
     }
@@ -157,8 +166,6 @@ public class LobbyController {
             lobby.setJugadoresConectados(lobby.getJugadoresConectados() + 1);
             lobbyRepository.save(lobby);
 
-            // Notificar a través de Socket.IO
-            socketHandler.notifyLobbyUpdated(nombre, lobby);
             logger.info("Jugador {} agregado al lobby {}", nickname, nombre);
         } else {
             logger.info("Jugador {} ya existe en el lobby {}", nickname, nombre);
@@ -178,8 +185,6 @@ public class LobbyController {
             lobby.setJugadoresListos(lobby.getJugadoresListos() - 1);
             lobbyRepository.save(lobby);
 
-            // Notificar a través de Socket.IO
-            socketHandler.notifyLobbyUpdated(nombre, lobby);
             logger.info("Jugador listo removido del lobby {}", nombre);
         }
         return ResponseEntity.ok(lobby);
@@ -244,8 +249,6 @@ public class LobbyController {
             lobby.setNumeroDeRondas(lobby.getNumeroDeRondas() - 1);
             lobbyRepository.save(lobby);
 
-            // Notificar a través de Socket.IO
-            socketHandler.notifyRoundEnded(nombre, lobby.getNumeroDeRondas());
             logger.info("Ronda restada en lobby {}. Rondas restantes: {}",
                     nombre, lobby.getNumeroDeRondas());
         }
