@@ -1,0 +1,26 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    include:
+      - '**'
+
+resources:
+  repositories:
+    - repository: SocketService
+      type: github
+      name: TheHiddenCargo/SocketService
+      endpoint: github-connection
+
+extends:
+  template: azure-pipelines-template.yml@socket
+  parameters:
+    projectName: 'LobbyAPI'
+    servicePort: '8082'
+    environment: 'production'
+    additionalSteps:
+      - script: |
+          echo "Running Lobby-specific build steps"
+        displayName: 'Lobby API'
