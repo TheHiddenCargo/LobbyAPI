@@ -15,7 +15,7 @@ jobs:
     with:
       java-version: '21'
       branch-name: 'main'
-      coverage-exclusions: 'src/main/java/arsw/tamaltolimense/LobbyApi/config/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/controller/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/model/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/repository/**/*'
+      coverage-exclusions: 'src/main/java/arsw/tamaltolimense/LobbyApi/config/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/controller/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/model/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/repository/**/*,src/main/java/arsw/tamaltolimense/LobbyApi/LobbyApiApplication.*'
     secrets:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
