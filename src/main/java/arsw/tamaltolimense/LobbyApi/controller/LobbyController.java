@@ -138,7 +138,7 @@ public class LobbyController {
     public ResponseEntity<Lobby> crearLobby(@RequestBody Lobby nuevaLobby) {
         logger.info("Creando nuevo lobby");
         if (lobbyRepository.findByNombre(nuevaLobby.getNombre()) != null) {
-            logger.warn("El lobby {} ya existe", nuevaLobby.getNombre());
+            logger.warn("El lobby ya existe");
             return ResponseEntity.badRequest().body(null);
         }
         if (nuevaLobby.getJugadores() == null) {

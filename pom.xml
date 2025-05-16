@@ -84,7 +84,6 @@
 						<exclude>arsw/tamaltolimense/LobbyApi/controller/*</exclude>
 						<exclude>arsw/tamaltolimense/LobbyApi/model/*</exclude>
 						<exclude>arsw/tamaltolimense/LobbyApi/repository/*</exclude>
-						<exclude>arsw/tamaltolimense/LobbyApi/LobbyApiApplication.*</exclude>
 					</excludes>
 				</configuration>
 				<executions>
