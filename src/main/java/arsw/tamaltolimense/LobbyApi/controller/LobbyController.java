@@ -1,7 +1,6 @@
 package arsw.tamaltolimense.LobbyApi.controller;
 
 import arsw.tamaltolimense.LobbyApi.model.Lobby;
-import arsw.tamaltolimense.LobbyApi.model.LobbyDTO;
 import arsw.tamaltolimense.LobbyApi.repository.LobbyRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -26,7 +25,7 @@ public class LobbyController {
 
 
     @PostMapping("/{nombre}/verificar")
-    public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody LobbyDTO lobbyInput) {
+    public ResponseEntity<String> verificarLobby(@PathVariable String nombre, @RequestBody Lobby lobbyInput) {
         logger.info("Verificando contraseña para lobby: {}", nombre);
         Lobby lobby = lobbyRepository.findByNombre(nombre);
         if (lobby == null) {
