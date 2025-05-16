@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory;
 
 @RestController
 @RequestMapping("/lobbies")
-@CrossOrigin(origins = "*") // Para desarrollo
+@CrossOrigin(origins = "https://white-field-008a0cb10.6.azurestaticapps.net/") // Para desarrollo
 public class LobbyController {
     private static final Logger logger = LoggerFactory.getLogger(LobbyController.class);
 
