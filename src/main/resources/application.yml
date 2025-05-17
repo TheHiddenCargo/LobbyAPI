@@ -3,7 +3,7 @@ spring:
     name: LobbyApi
   data:
     mongodb:
-      uri: mongodb+srv://papaletagg67:6B0tkhUNZWpPtvsC@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
+      uri: mongodb+srv://papaletagg67:${DBLOBBYMONGO}C@clustertamal.mcsgqhm.mongodb.net/basearsw?retryWrites=true&w=majority&appName=ClusterTamal
       database: basearsw
 
 
